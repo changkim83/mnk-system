@@ -12,7 +12,7 @@ from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="MNK 성과관리 시스템", layout="wide")
 
-# 구글 시트 연결 설정
+# 구글 시트 연결 (Secrets 설정을 기반으로 자동으로 연결됩니다)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 YEAR_OPTIONS = [str(y) for y in range(datetime.now().year + 1, datetime.now().year - 5, -1)]
@@ -23,10 +23,9 @@ if 'opened_gid' not in st.session_state:
 if 'temp_workers' not in st.session_state:
     st.session_state.temp_workers = []
 
-# 1-3. 데이터 로드/저장 함수 (구글 시트 전용)
+# 데이터 로드/저장 함수
 def load_data():
     try:
-        # 'Data'라는 이름의 워크시트를 읽어옵니다.
         df = conn.read(worksheet="Data", ttl=0)
         return df.dropna(how="all")
     except:
@@ -34,9 +33,7 @@ def load_data():
 
 def load_config():
     try:
-        # 'Config'라는 이름의 워크시트를 읽어옵니다.
         df_cfg = conn.read(worksheet="Config", ttl=0)
-        # 시트 데이터를 JSON 형태의 딕셔너리로 변환
         config_raw = df_cfg.iloc[0].to_dict()
         return {
             "diff_weights": json.loads(config_raw["diff_weights"]),
@@ -45,7 +42,6 @@ def load_config():
             "main_color": config_raw["main_color"]
         }
     except:
-        # 기본값
         return {
             "diff_weights": {"S": 2.0, "A": 1.5, "B": 1.0, "C": 0.7},
             "cont_weights": {"상": 1.2, "중": 1.0, "하": 0.8},
@@ -53,19 +49,25 @@ def load_config():
             "main_color": "#00FFD1"
         }
 
-def save_to_gsheets(df, config=None):
-    # 데이터 저장
+def save_and_stay(df, gid=None):
+    # 구글 시트 'Data' 워크시트 업데이트
     conn.update(worksheet="Data", data=df)
-    # 설정 저장 (설정값이 있을 경우)
-    if config:
-        cfg_df = pd.DataFrame([{
-            "diff_weights": json.dumps(config["diff_weights"]),
-            "cont_weights": json.dumps(config["cont_weights"]),
-            "penalty_rate": config["penalty_rate"],
-            "main_color": config["main_color"]
-        }])
-        conn.update(worksheet="Config", data=cfg_df)
+    st.session_state.opened_gid = gid
     st.cache_data.clear()
+    st.rerun()
+
+def save_config(config):
+    cfg_df = pd.DataFrame([{
+        "diff_weights": json.dumps(config["diff_weights"]),
+        "cont_weights": json.dumps(config["cont_weights"]),
+        "penalty_rate": config["penalty_rate"],
+        "main_color": config["main_color"]
+    }])
+    conn.update(worksheet="Config", data=cfg_df)
+    st.cache_data.clear()
+
+config = load_config()
+all_df = load_data()
 
 # 1-4. 핵심 점수 계산 엔진 (수정됨: 디자인컷 균등 배분 로직)
 def run_score_engine(project_df, p_diff, p_total_edits, cfg):
@@ -730,4 +732,5 @@ with tabs[3]:
             save_and_stay(all_df, st.session_state.opened_gid)
         else:
             st.success("설정이 저장되었습니다.")
+
             st.rerun()
