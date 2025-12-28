@@ -5,27 +5,17 @@ from datetime import datetime
 import plotly.graph_objects as go
 from streamlit_gsheets import GSheetsConnection
 
-# =============================================================================
-# [PART 1] 시스템 설정 및 데이터 연동
-# =============================================================================
-
+# 1. 페이지 설정
 st.set_page_config(page_title="MNK 성과관리 시스템", layout="wide")
 
-# 구글 시트 연결 객체 생성
+# 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-YEAR_OPTIONS = [str(y) for y in range(datetime.now().year + 1, datetime.now().year - 5, -1)]
-PART_ORDER = ["마케팅", "디자인컷", "콘티", "모델링", "애니메이션", "편집"]
-
-if 'temp_workers' not in st.session_state:
-    st.session_state.temp_workers = []
-
-# 데이터 로드/저장 함수
+# 3. 데이터 로드/저장 함수 (보강됨)
 def load_data():
     try:
-        df = conn.read(worksheet="Data", ttl=0)
-        return df.dropna(how="all")
-    except:
+        return conn.read(worksheet="Data", ttl=0).dropna(how="all")
+    except Exception as e:
         return pd.DataFrame()
 
 def load_config():
@@ -39,27 +29,23 @@ def load_config():
             "main_color": row["main_color"]
         }
     except:
-        return {
-            "diff_weights": {"S": 2.0, "A": 1.5, "B": 1.0, "C": 0.7},
-            "cont_weights": {"상": 1.2, "중": 1.0, "하": 0.8},
-            "penalty_rate": 0.05,
-            "main_color": "#00FFD1"
-        }
+        return {"diff_weights": {"S": 2.0, "A": 1.5, "B": 1.0, "C": 0.7}, "cont_weights": {"상": 1.2, "중": 1.0, "하": 0.8}, "penalty_rate": 0.05, "main_color": "#00FFD1"}
 
 def save_to_gsheets(df, config_data=None):
-    # 데이터 시트 업데이트
-    conn.update(worksheet="Data", data=df)
-    # 설정 시트 업데이트 (있을 경우)
-    if config_data:
-        cfg_df = pd.DataFrame([{
-            "diff_weights": json.dumps(config_data["diff_weights"]),
-            "cont_weights": json.dumps(config_data["cont_weights"]),
-            "penalty_rate": config_data["penalty_rate"],
-            "main_color": config_data["main_color"]
-        }])
-        conn.update(worksheet="Config", data=cfg_df)
-    st.cache_data.clear()
-    st.rerun()
+    try:
+        # 시트에 쓰기 전에 데이터 형식을 강제로 맞춤
+        df_to_save = df.copy()
+        conn.update(worksheet="Data", data=df_to_save)
+        
+        if config_data:
+            cfg_df = pd.DataFrame([{"diff_weights": json.dumps(config_data["diff_weights"]), "cont_weights": json.dumps(config_data["cont_weights"]), "penalty_rate": config_data["penalty_rate"], "main_color": config_data["main_color"]}])
+            conn.update(worksheet="Config", data=cfg_df)
+        
+        st.cache_data.clear()
+        st.success("데이터가 안전하게 저장되었습니다!")
+        st.rerun()
+    except Exception as e:
+        st.error(f"저장 중 오류가 발생했습니다. 구글 시트의 컬럼명과 개수를 확인해주세요. 에러내용: {e}")
 
 # =============================================================================
 # [PART 2] 점수 계산 엔진
